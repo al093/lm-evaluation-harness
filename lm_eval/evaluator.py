@@ -343,16 +343,6 @@ def evaluate(
             reqtype = instance.request_type
             requests[reqtype].append(instance)
 
-        if lm.world_size > 1:
-            instances_rnk = torch.tensor(len(task._instances), device=lm.device)
-            gathered_item = (
-                lm.accelerator.gather(instances_rnk).cpu().detach().numpy().tolist()
-            )
-
-            # compute number of pseudo-batches to pad with (FSDP/DDP require even batches among ranks)
-            numpad = max(gathered_item) - gathered_item[lm.rank]
-            padding_requests[task.OUTPUT_TYPE] += numpad
-
     ### Run LM on inputs, get all outputs ###
     # execute each type of request
     for reqtype, reqs in requests.items():
@@ -362,10 +352,21 @@ def evaluate(
         for req in reqs:
             cloned_reqs.extend([req] * req.repeats)
 
-        if (lm.world_size > 1) and (padding_requests[reqtype] > 0):
-            for _ in range(padding_requests[reqtype]):
+        if lm.world_size > 1:
+            instances_rnk = torch.tensor(len(reqs), device=lm.device)
+            gathered_item = (
+                lm.accelerator.gather(instances_rnk).cpu().detach().numpy().tolist()
+            )
+
+            # compute number of pseudo-batches to pad with (FSDP/DDP require even batches among ranks)
+            numpad = max(gathered_item) - gathered_item[lm.rank]
+
+            for _ in range(numpad):
                 cloned_reqs.extend([req] * req.repeats)
 
+        eval_logger.debug(
+            f"Request type: {reqtype}; number of requests on this rank: {len(cloned_reqs)}"
+        )
         # run requests through model
         resps = getattr(lm, reqtype)(cloned_reqs)
 
