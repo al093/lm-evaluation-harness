@@ -360,9 +360,7 @@ def evaluate(
 
             # compute number of pseudo-batches to pad with (FSDP/DDP require even batches among ranks)
             numpad = max(gathered_item) - gathered_item[lm.rank]
-
-            for _ in range(numpad):
-                cloned_reqs.extend([req] * req.repeats)
+            cloned_reqs.extend([cloned_reqs[-1]] * numpad)
 
         eval_logger.debug(
             f"Request type: {reqtype}; number of requests on this rank: {len(cloned_reqs)}"
