@@ -4,6 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, Union
 
+import deepspeed
 import torch
 import torch.nn.functional as F
 import transformers
@@ -741,7 +742,15 @@ class HFLM(TemplateLM):
                 ).logits
             else:
                 assert self.AUTO_MODEL_CLASS == transformers.AutoModelForCausalLM
-                return self.model(inps).logits
+                logits = self.model(inps).logits
+
+                # hack for deepspeed hangs
+                deepspeed.runtime.utils.empty_cache()
+                torch._C._cuda_clearCublasWorkspaces()
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+
+                return logits
 
     def _model_generate(self, context, max_length, stop, **generation_kwargs):
         # temperature = 0.0 if not set
